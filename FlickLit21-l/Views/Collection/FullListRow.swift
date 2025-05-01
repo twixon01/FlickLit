@@ -9,7 +9,10 @@ import SwiftUI
 
 struct FullListRow: View {
     @State private var showDetail = false
+    @EnvironmentObject private var vm: CollectionViewModel
     let item: MediaItem
+
+    
 
     static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -22,11 +25,11 @@ struct FullListRow: View {
             showDetail = true
         } label: {
             HStack(spacing: 12) {
-                AsyncImage(
-                    url: URL(string: "https://image.tmdb.org/t/p/w185\(item.posterPath ?? "")"),
-                    content: { img in img.resizable().aspectRatio(contentMode: .fill) },
-                    placeholder: { Color.gray.opacity(0.5) }
-                )
+                AsyncImage(url: item.posterURL) { img in
+                    img.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Color.gray.opacity(0.5)
+                }
                 .frame(width: 80, height: 120)
                 .cornerRadius(8)
                 .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 4)
@@ -35,14 +38,18 @@ struct FullListRow: View {
                     Text(item.title)
                         .font(.custom("SFProDisplay-Black", size: 18))
                         .foregroundColor(.white)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
                     Text("Director: \(item.director)")
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
 
-                    Text("\(item.year) • \(item.genreNames.first ?? "—")")
+                    let genresText = item.genreNames.isEmpty
+                        ? "—"
+                        : item.genreNames.prefix(2).joined(separator: ", ")
+                    Text("\(item.year) • \(genresText)")
                         .font(.footnote)
                         .foregroundColor(.white.opacity(0.6))
 
@@ -86,10 +93,13 @@ struct FullListRow: View {
             .background(Color.black.opacity(0.2))
             .cornerRadius(8)
         }
-        .sheet(isPresented: $showDetail) {
+        .sheet(isPresented: $showDetail,
+               onDismiss: {
+            Task { await vm.loadUserMediaItems() }
+        }
+        ) {
             MediaDetailView(item: item, isPresented: $showDetail)
                 .preferredColorScheme(.dark)
         }
     }
 }
-

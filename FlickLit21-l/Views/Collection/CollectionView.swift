@@ -96,6 +96,7 @@ struct CollectionView: View {
                 .onAppear  { Task { await vm.loadUserMediaItems() } }
             }
             .navigationBarHidden(true)
+            .environmentObject(vm)
         }
     }
 }

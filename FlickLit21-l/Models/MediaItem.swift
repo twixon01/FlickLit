@@ -26,5 +26,6 @@ struct MediaItem: Identifiable, Codable, Hashable {
     var userRating: Int? = nil
     let overview: String
     var mediaType: MediaType
+    var note: String? = nil
     
 }

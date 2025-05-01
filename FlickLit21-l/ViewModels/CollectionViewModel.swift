@@ -2,71 +2,75 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
+@MainActor
 final class CollectionViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    private let tmdb = TMDBService()
+    private let tmdb = TMDBService.shared
+    private let ol = OpenLibraryService.shared
     private var allUserItems: [MediaItem] = []
-
-    func loadTrending() async {
-        isLoading = true
-        do {
-            items = try await tmdb.fetchTrendingMovies()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
-
+    
     func loadUserMediaItems() async {
         isLoading = true
         errorMessage = nil
 
         FirestoreManager.shared.fetchUserMediaDocuments { [weak self] documents in
-            Task {
+            Task { @MainActor in
                 guard let self = self else { return }
-
                 var result: [MediaItem] = []
 
                 for doc in documents {
-                    guard let mediaId = doc["mediaId"] as? Int else { continue }
+                    guard
+                        let mediaId = doc["mediaId"] as? Int,
+                        let rawType = doc["mediaType"] as? String,
+                        let mediaType = MediaType(rawValue: rawType)
+                    else { continue }
 
                     let startDate = (doc["watchedAtStart"] as? Timestamp)?.dateValue()
                     let endDate = (doc["watchedAtEnd"] as? Timestamp)?.dateValue()
                     let userRating = doc["userRating"] as? Int
-                    let mediaTypeRaw = doc["mediaType"] as? String
-                    guard let mediaType = MediaType(rawValue: mediaTypeRaw ?? "") else { continue }
+                    let note = doc["note"] as? String
 
                     do {
-                        var item = try await self.tmdb.fetchMedia(by: mediaId, type: mediaType)
+                        var item: MediaItem
+                        if mediaType == .book {
+                            let books = try await self.ol.searchBooks(String(mediaId))
+                            guard let found = books.first(where: { $0.id == mediaId }) else {
+                                continue
+                            }
+                            item = found
+                        } else {
+                            item = try await self.tmdb.fetchMedia(by: mediaId, type: mediaType)
+                        }
+
+                        // user fields
                         item.startDate = startDate
                         item.endDate = endDate
                         item.userRating = userRating
+                        item.note = note
+
                         result.append(item)
                     } catch {
                         print("Failed load media \(mediaId): \(error.localizedDescription)")
                     }
                 }
 
-                DispatchQueue.main.async {
-                    self.allUserItems = result
-                    self.items = result
-                    self.isLoading = false
-                }
+                self.allUserItems = result
+                self.items = result
+                self.isLoading = false
             }
         }
     }
 
     func search(_ query: String) async {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        let t = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if t.isEmpty {
             items = allUserItems
         } else {
             items = allUserItems.filter {
-                $0.title.lowercased().contains(trimmed.lowercased())
+                $0.title.lowercased().contains(t)
             }
         }
     }

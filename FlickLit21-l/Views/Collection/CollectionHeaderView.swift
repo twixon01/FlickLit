@@ -78,9 +78,14 @@ struct CollectionHeaderView: View {
                         .font(.title2)
                         .foregroundColor(.yellow)
                 }
-                .sheet(isPresented: $showingAddSheet) {
-                    AddMediaView()
-                        .preferredColorScheme(.dark)
+                .sheet(
+                  isPresented: $showingAddSheet,
+                  onDismiss: {
+                    Task { await vm.loadUserMediaItems() }
+                  }
+                ) {
+                  AddMediaView()
+                    .preferredColorScheme(.dark)
                 }
             }
         }

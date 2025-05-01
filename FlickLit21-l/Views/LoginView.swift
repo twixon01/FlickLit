@@ -16,28 +16,49 @@ struct LoginView: View {
             Color("BackgroundGray")
                 .ignoresSafeArea()
 
-            VStack {
+            VStack(spacing: 24) {
                 Spacer()
 
-                Text("Вход в FlickLit")
-                    .font(.largeTitle)
-                    .bold()
+                Image("AppLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 150, height: 150)
+                    .cornerRadius(16)
+
+                Text("Sign In")
+                    .font(.custom("SFProDisplay-Black", size: 36))
                     .foregroundColor(.white)
+                    .padding(.bottom, 16)
 
-                Spacer()
-
-                GoogleSignInButton {
-                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                          let rootVC = windowScene.windows.first?.rootViewController else {
-                        return
+                Button(action: signInWithGoogle) {
+                    HStack(spacing: 12) {
+                        Image("google_logo")
+                            .resizable()
+                            .frame(width: 24, height: 24)
+                        Text("Sign In with Google")
+                            .font(.custom("SFProDisplay-Semibold", size: 18))
+                            .fontWeight(.medium)
+                            .foregroundColor(.black)
                     }
-                    authViewModel.signInWithGoogle(presenting: rootVC)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 64)
+                    .background(Color.yellow)
+                    .cornerRadius(32)
                 }
-                .frame(height: 50)
-                .padding()
 
                 Spacer()
             }
+            .frame(maxWidth: .infinity)
         }
+    }
+
+    private func signInWithGoogle() {
+        guard
+            let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+            let rootVC = windowScene.windows.first?.rootViewController
+        else {
+            return
+        }
+        authViewModel.signInWithGoogle(presenting: rootVC)
     }
 }

@@ -5,117 +5,114 @@
 //  Created by Ilya Nestrogaev on 21.04.2025.
 
 import SwiftUI
-import FirebaseFirestore
-import FirebaseAuth
 
 struct AddMediaView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var vm: CollectionViewModel
+
     @State private var searchText = ""
-    @State private var searchResults: [MediaItem] = []
-    @State private var selectedId: Int?
-    @State private var startDate = Date()
-    @State private var endDate = Date()
-    @State private var rating: Double = 5.0
+    @State private var searchResults = [MediaItem]()
+    @State private var selectedItem: MediaItem?
+    @State private var showDetail = false
+
     @State private var selectedType: MediaType = .movie
 
-    private let tmdb = TMDBService()
+    @State private var debounceTask: Task<Void, Never>?
 
-    var selectedItem: MediaItem? {
-        searchResults.first { $0.id == selectedId }
-    }
+    private let tmdb = TMDBService.shared
+    private let ol = OpenLibraryService.shared
 
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Тип медиа")) {
-                    Picker("Тип", selection: $selectedType) {
-                        Text("Фильм").tag(MediaType.movie)
-                        Text("Сериал").tag(MediaType.tv)
-                    }
-                    .pickerStyle(.segmented)
+            VStack(spacing: 16) {
+                Picker("Media Type", selection: $selectedType) {
+                    Text("Movie").tag(MediaType.movie)
+                    Text("TV Show").tag(MediaType.tv)
+                    Text("Book").tag(MediaType.book)
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
 
-                Section(header: Text("Поиск")) {
-                    TextField("Название", text: $searchText)
-                        .onSubmit { Task { await search() } }
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.white.opacity(0.7))
+                    TextField("Search", text: $searchText)
+                        .foregroundColor(.white)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .onChange(of: searchText) { newValue in
+                            debounceTask?.cancel()
+                            debounceTask = Task {
+                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                await performSearch(newValue)
+                            }
+                        }
+                }
+                .padding(10)
+                .background(Color.black.opacity(0.3))
+                .cornerRadius(8)
+                .padding(.horizontal, 16)
 
-                    if !searchResults.isEmpty {
-                        Picker("Выберите медиа", selection: $selectedId) {
-                            ForEach(searchResults, id: \.id) { item in
-                                Text(item.title).tag(Optional(item.id))
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(searchResults.prefix(10)) { item in
+                            Button {
+                                selectedItem = item
+                                showDetail = true
+                            } label: {
+                                SearchResultRow(item: item)
                             }
                         }
                     }
+                    .padding(.horizontal, 16)
                 }
 
-                if selectedItem != nil {
-                    Section(header: Text("Информация")) {
-                        DatePicker("Дата начала", selection: $startDate, displayedComponents: .date)
-                        DatePicker("Дата окончания", selection: $endDate, displayedComponents: .date)
-
-                        HStack {
-                            Text("Оценка: \(Int(rating))")
-                            Slider(value: $rating, in: 0...10, step: 1)
-                        }
-                    }
-
-                    Section {
-                        Button("Сохранить") {
-                            if let item = selectedItem {
-                                saveToFirestore(item: item)
-                            }
-                        }
+                Spacer()
+            }
+            .navigationTitle("Add to Collection")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        Task { await vm.loadUserMediaItems() }
+                        dismiss()
                     }
                 }
             }
-            .navigationTitle("Добавить медиа")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
+            .sheet(isPresented: $showDetail) {
+                if let item = selectedItem {
+                    AddMediaDetailView(item: item, isPresented: $showDetail)
+                        .preferredColorScheme(.dark)
                 }
             }
         }
     }
 
-    private func search() async {
+    private func performSearch(_ q: String) async {
+        let query = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            searchResults = []
+            return
+        }
         do {
             switch selectedType {
             case .movie:
-                searchResults = try await tmdb.searchMovies(searchText)
+                searchResults = try await tmdb.searchMovies(query)
             case .tv:
-                searchResults = try await tmdb.searchTVShows(searchText)
+                searchResults = try await tmdb.searchTVShows(query)
             case .book:
-                searchResults = [] // later
+                searchResults = try await ol.searchBooks(query)
             }
         } catch {
             print("Ошибка поиска: \(error.localizedDescription)")
+            searchResults = []
         }
     }
+}
 
-    private func saveToFirestore(item: MediaItem) {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-
-        let doc = Firestore.firestore()
-            .collection("users")
-            .document(uid)
-            .collection("mediaItems")
-            .document("\(item.id)")
-
-        let data: [String: Any] = [
-            "mediaId": item.id,
-            "watchedAtStart": Timestamp(date: startDate),
-            "watchedAtEnd": Timestamp(date: endDate),
-            "userRating": rating,
-            "mediaType": selectedType.rawValue
-        ]
-
-        doc.setData(data) { error in
-            if let error = error {
-                print("Firestore erroor: \(error.localizedDescription)")
-            } else {
-                print("Saved Firestore: \(item.title)")
-                dismiss()
-            }
-        }
+struct AddMediaView_Previews: PreviewProvider {
+    static var previews: some View {
+        AddMediaView()
+            .preferredColorScheme(.dark)
     }
 }
