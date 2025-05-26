@@ -38,18 +38,13 @@ struct AddMediaDetailView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     posterAndInfo
-
                     descriptionSection
                     Divider()
-
                     datePickerSection
-
                     noteSection
                 }
                 .padding(.vertical)
-                .onTapGesture {
-                    noteFocused = false
-                }
+                .onTapGesture { noteFocused = false }
             }
             .background(Color("BackgroundGray"))
             .navigationTitle("Add to Collection")
@@ -100,10 +95,8 @@ struct AddMediaDetailView: View {
                         Text("Your rating: \(Int(rating))")
                             .foregroundColor(.white)
                         Slider(value: $rating, in: 0...10, step: 1)
-                          .tint(.yellow)
-                          .onChange(of: rating) {
-                            ratingSet = true
-                          }
+                            .tint(.yellow)
+                            .onChange(of: rating) { _ in ratingSet = true }
                     }
                     .padding(.vertical, 4)
                 }
@@ -129,9 +122,7 @@ struct AddMediaDetailView: View {
     }
 
     private var descriptionSection: some View {
-        Text(item.overview.isEmpty
-             ? "No description available."
-             : item.overview)
+        Text(item.overview.isEmpty ? "No description available." : item.overview)
             .font(.body)
             .foregroundColor(.secondary)
             .multilineTextAlignment(.leading)
@@ -141,65 +132,50 @@ struct AddMediaDetailView: View {
 
     private var datePickerSection: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 4) {
-                HStack {
-                    Spacer()
-                    Text(item.mediaType == .book ? "Start read:" : "Start watch:")
-                        .foregroundColor(.white)
-                    Button(startDate.map { dateFormatter.string(from: $0) } ?? "Select") {
-                        if startDate == nil { startDate = Date() }
-                        withAnimation { showStartPicker.toggle() }
-                    }
-                    .foregroundColor(.yellow)
-                    Spacer()
-                }
-                if showStartPicker, let binding = Binding($startDate) {
-                    DatePicker(
-                        "",
-                        selection: binding,
-                        displayedComponents: .date
-                    )
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-                }
-            }
-
-            VStack(spacing: 4) {
-                HStack {
-                    Spacer()
-                    Text(item.mediaType == .book ? "End read:" : "End watch:")
-                        .foregroundColor(.white)
-                    Button(endDate.map { dateFormatter.string(from: $0) } ?? "Select") {
-                        if endDate == nil { endDate = Date() }
-                        withAnimation { showEndPicker.toggle() }
-                    }
-                    .foregroundColor(.yellow)
-                    Spacer()
-                }
-                if showEndPicker, let binding = Binding($endDate) {
-                    DatePicker(
-                        "",
-                        selection: binding,
-                        displayedComponents: .date
-                    )
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-                }
-            }
+            datePickerRow(
+                label: item.mediaType == .book ? "Start read:" : "Start watch:",
+                date: $startDate, show: $showStartPicker
+            )
+            datePickerRow(
+                label: item.mediaType == .book ? "End read:" : "End watch:",
+                date: $endDate, show: $showEndPicker
+            )
         }
         .padding(.horizontal)
+    }
+
+    private func datePickerRow(label: String,
+                               date: Binding<Date?>,
+                               show: Binding<Bool>) -> some View {
+        VStack(spacing: 4) {
+            HStack {
+                Spacer()
+                Text(label).foregroundColor(.white)
+                Button(date.wrappedValue.map { dateFormatter.string(from: $0) } ?? "Select") {
+                    if date.wrappedValue == nil { date.wrappedValue = Date() }
+                    withAnimation { show.wrappedValue.toggle() }
+                }
+                .foregroundColor(.yellow)
+                Spacer()
+            }
+            if show.wrappedValue, let d = date.wrappedValue {
+                DatePicker("", selection: Binding(
+                    get: { d },
+                    set: { date.wrappedValue = $0 }
+                ), displayedComponents: .date)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+            }
+        }
     }
 
     private var noteSection: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.05))
-                )
+                .background(RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black.opacity(0.05)))
             TextEditor(text: $note)
                 .focused($noteFocused)
                 .padding(12)
@@ -216,11 +192,7 @@ struct AddMediaDetailView: View {
 
     private func saveToFirestore() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        let doc = Firestore.firestore()
-            .collection("users")
-            .document(uid)
-            .collection("mediaItems")
-            .document("\(item.id)")
+        let doc = Firestore.firestore().collection("users").document(uid).collection("mediaItems").document("\(item.id)")
 
         var data: [String: Any] = [
             "mediaId": item.id,
@@ -233,18 +205,96 @@ struct AddMediaDetailView: View {
 
         doc.setData(data, merge: true) { error in
             if let e = error {
-                print("Ошибка сохранения:", e.localizedDescription)
-            } else {
-                isPresented = false
+                print("Save media error:", e.localizedDescription)
+                return
             }
+
+            // overview обновление
+            updateStatsOnAdd(
+                uid: uid,
+                mediaType: item.mediaType,
+                rating: ratingSet ? Int(rating) : nil,
+                completedAt: endDate
+            )
+
+            // достижения
+            var keys = [String]()
+            switch item.mediaType {
+            case .book: keys.append("readBooks")
+            case .movie: keys.append("watchMovies")
+            case .tv: keys.append("finishTVShows")
+            }
+            if ratingSet { keys.append("giveRatings") }
+            keys.append("totalItems")
+
+            AchievementsService().updateForEvent(uid: uid, keys: keys, delta: 1)
+            isPresented = false
         }
+    }
+
+    private func updateStatsOnAdd(
+        uid: String,
+        mediaType: MediaType,
+        rating: Int?,
+        completedAt: Date?
+    ) {
+        let statsRef = Firestore.firestore()
+            .collection("users").document(uid)
+            .collection("stats").document("overview")
+
+        Firestore.firestore().runTransaction({ tx, errPtr -> Any? in
+            let snap: DocumentSnapshot
+            do {
+                snap = try tx.getDocument(statsRef)
+            } catch let nsErr as NSError {
+                errPtr?.pointee = nsErr
+                return nil
+            }
+
+            let data = snap.data() ?? [:]
+            var total = data["totalItems"] as? Int ?? 0
+            var completed = data["completedItems"] as? Int ?? 0
+            var avg = data["averageRating"]  as? Double ?? 0
+            var byWeek = data["countsByWeek"] as? [String:Int] ?? [:]
+            var byType = data["countsByType"] as? [String:Int] ?? [:]
+
+            total += 1
+            if completedAt != nil { completed += 1 }
+            if let r = rating {
+                let sumOld = avg * Double(total - 1)
+                avg = (sumOld + Double(r)) / Double(total)
+            }
+            if let done = completedAt {
+                let comps = Calendar.current
+                    .dateComponents([.yearForWeekOfYear, .weekOfYear], from: done)
+                if let y = comps.yearForWeekOfYear, let w = comps.weekOfYear {
+                    let key = String(format: "%04d-W%02d", y, w)
+                    byWeek[key, default: 0] += 1
+                }
+            }
+            byType[mediaType.rawValue, default: 0] += 1
+
+            tx.setData([
+                "totalItems": total,
+                "completedItems": completed,
+                "averageRating": avg,
+                "countsByWeek": byWeek,
+                "countsByType": byType
+            ], forDocument: statsRef, merge: true)
+
+            return nil
+        }, completion: { _, e in
+            if let e = e {
+                print("Stats tx error:", e.localizedDescription)
+            }
+        })
     }
 
     private func typeLabel(for type: MediaType) -> String {
         switch type {
-            case .movie: return "Movie"
-            case .tv: return "TV Show"
-            case .book: return "Book"
+        case .movie: return "Movie"
+        case .tv: return "TV Show"
+        case .book: return "Book"
         }
     }
 }

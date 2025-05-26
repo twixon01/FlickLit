@@ -88,8 +88,46 @@ class AuthViewModel: ObservableObject {
                 if let error = error {
                     print("Error creating mediaItems/initDoc: \(error.localizedDescription)")
                 }
-                DispatchQueue.main.async {
-                    completion()
+                // статистика
+                let statsRef = userRef.collection("stats").document("overview")
+                let initialStats: [String: Any] = [
+                  "totalItems": 0,
+                  "completedItems": 0,
+                  "averageRating": 0.0,
+                  "countsByWeek": [:],
+                  "countsByType": ["movie": 0, "tv": 0, "book": 0],
+                  "createdAt": FieldValue.serverTimestamp()
+                ]
+                statsRef.setData(initialStats) { error in
+                    if let error = error {
+                        print("Error creating overview: \(error.localizedDescription)")
+                    }
+                let achievementsRef = userRef.collection("userAchievements").document("progress")
+                let initialAchievements: [String: Any] = [
+                  "progress": [
+                    "readBooks": 0,
+                    "watchMovies": 0,
+                    "finishTVShows": 0,
+                    "giveRatings": 0,
+                    "totalItems": 0
+                  ],
+                  "levels": [
+                    "readBooks": 0,
+                    "watchMovies": 0,
+                    "finishTVShows": 0,
+                    "giveRatings": 0,
+                    "totalItems": 0
+                  ],
+                  "updatedAt": FieldValue.serverTimestamp()
+                ]
+                    achievementsRef.setData(initialAchievements) { error in
+                        if let e = error {
+                            print("Error creating userAchievements/progress:", e.localizedDescription)
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        completion()
+                    }
                 }
             }
         }

@@ -167,32 +167,17 @@ final class TMDBService {
         let url = baseURL.appendingPathComponent("search/tv")
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         comps.queryItems = [
-            URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "query", value: q),
-            URLQueryItem(name: "language", value: "en-US")
+            .init(name: "api_key", value: apiKey),
+            .init(name: "query", value: q),
+            .init(name: "language", value: "en-US")
         ]
-
+        
         let (data, _) = try await URLSession.shared.data(from: comps.url!)
         let resp = try JSONDecoder().decode(SearchResponse.self, from: data)
-
+        
+        // теперь для каждого fetchMedia (для createdBy, иначе теряется пока хз почему)
         return try await resp.results.asyncMap { r in
-            let year = String(r.releaseDate.prefix(4))
-            let allNames = r.genres?.map { $0.name }
-                        ?? r.genreIDs?.compactMap { genreMap[$0] }
-                        ?? []
-            let names = Array(allNames.prefix(2))
-            let creator = r.createdBy?.map { $0.name }.joined(separator: ", ") ?? "—"
-            return MediaItem(
-                id: r.id,
-                title: r.title,
-                year: year,
-                genreNames: names,
-                posterPath: r.posterPath,
-                rating: String(format: "%.1f", r.voteAverage),
-                director: creator,
-                overview: r.overview,
-                mediaType: .tv
-            )
+            try await fetchMedia(by: r.id, type: .tv)
         }
     }
 
